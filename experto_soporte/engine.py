@@ -1,3 +1,6 @@
+# engine.py 
+#Motor de Reglas y Hechos
+
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 
@@ -45,7 +48,15 @@ def motor_reglas(sintomas: Sintomas) -> Dict[str, Any]:
         recomendaciones.append("Utilizar la herramienta 'msconfig' para deshabilitar temporalmente los programas de inicio y aislar el conflicto.")
         diagnostico_principal = "CONFLICTO_DE_SOFTWARE_O_LIBRERIAS"
 
-    # 3. Regla de Corrupción de Aplicación Específica (Cierre Inesperado)
+    # 3. Regla de Coherencia Mejorada: Múltiples Síntomas de Aplicación (Lentitud + Cierre)
+    elif sintomas.app_lenta_o_congela and sintomas.app_cierra_inesperadamente:
+        justificacion_regla = "La aplicación está fallando sistemáticamente (lentitud seguida de cierre). Esto puede indicar un error de versión de software que no es compatible con el sistema operativo actual o un driver de video obsoleto que causa inestabilidad."
+        recomendaciones.append("Diagnóstico: Conflicto de compatibilidad (Versión/Driver).")
+        recomendaciones.append("Reinstalar la aplicación con una versión anterior si el problema es reciente, o verificar la compatibilidad de drivers (ej. de la tarjeta de video).")
+        recomendaciones.append("Ejecutar el programa de diagnóstico de Windows para memoria (Windows Memory Diagnostic).")
+        diagnostico_principal = "CONFLICTO_DE_COMPATIBILIDAD"
+
+    # 4. Regla de Corrupción de Aplicación Específica (Cierre Inesperado, ahora Regla 4)
     # La app muere sola sin BSOD ni instalación fallida, es corrupción local.
     elif sintomas.app_cierra_inesperadamente:
         justificacion_regla = "El cierre inesperado de una aplicación sin evidencia de fallos del sistema generalmente apunta a CORRUPCIÓN interna de los archivos de la aplicación o errores de memoria específicos."
@@ -54,7 +65,7 @@ def motor_reglas(sintomas: Sintomas) -> Dict[str, Any]:
         recomendaciones.append("Verificar los requisitos mínimos de RAM/CPU, ya que puede ser una limitación de recursos.")
         diagnostico_principal = "REINSTALAR_APLICACION_LIMPIANDO_CACHE"
 
-    # 4. Regla de Instalación Fallida (Problema de Permisos o Pre-requisito)
+    # 5. Regla de Instalación Fallida (Problema de Permisos o Pre-requisito, ahora Regla 5)
     elif sintomas.instalacion_o_actualizacion_fallida:
         justificacion_regla = "El proceso de instalación falló solo. Esto suele ser un problema de PERMISOS insuficientes o que falta un pre-requisito (ej. .NET Framework, Visual C++ Redistributable)."
         recomendaciones.append("Diagnóstico: Problemas de permisos o pre-requisitos.")
@@ -63,7 +74,7 @@ def motor_reglas(sintomas: Sintomas) -> Dict[str, Any]:
         recomendaciones.append("Instalar manualmente los pre-requisitos de software comunes.")
         diagnostico_principal = "REINTENTAR_COMO_ADMINISTRADOR"
     
-    # 5. Regla de Rendimiento o Bloqueo Simple (App Lenta/Congelada)
+    # 6. Regla de Rendimiento o Bloqueo Simple (App Lenta/Congelada, ahora Regla 6)
     elif sintomas.app_lenta_o_congela:
         justificacion_regla = "La lentitud o congelación es el síntoma más común de FUGA DE MEMORIA o sobrecarga de la CPU por procesos en segundo plano."
         recomendaciones.append("Diagnóstico: Sobrecarga temporal de recursos o fuga de memoria.")
@@ -71,7 +82,7 @@ def motor_reglas(sintomas: Sintomas) -> Dict[str, Any]:
         recomendaciones.append("Revisar el Administrador de Tareas para identificar y finalizar procesos con alto consumo de recursos.")
         diagnostico_principal = "FINALIZAR_TAREA_Y_REINICIAR_APP"
         
-    # 6. Regla de Periféricos Desconocidos
+    # 7. Regla de Periféricos Desconocidos (ahora Regla 7)
     elif sintomas.periferico_no_detectado:
         justificacion_regla = "Un periférico no detectado es un problema directo de DRIVERS (Controladores) o del puerto físico (hardware) donde está conectado."
         recomendaciones.append("Diagnóstico: Problema de detección de hardware o falta de drivers.")

@@ -27,7 +27,7 @@ const API_BASE_URL = 'http://127.0.0.1:8000';
 
 // Estado global de la aplicación
 let state = {
-    step: 1, // 1 = selección, 2 = diagnóstico, "report" = form reporte
+    step: 1, // 1 = selección, 2 = diagnóstico, "report" = form reporte, "admin" = panel administrador
     symptoms: {
         app_lenta_o_congela: false,
         app_cierra_inesperadamente: false,
@@ -40,6 +40,9 @@ let state = {
     isLoading: false,
     error: null,
     reportMessage: null, // Para mostrar mensajes de éxito/error sin usar alert()
+    // --- ESTADO DEL ADMIN ---
+    adminData: null,
+    adminTab: 'estadisticas', // 'estadisticas', 'historial', 'reportes'
 };
 
 const symptomList = [
@@ -53,12 +56,12 @@ const symptomList = [
 const DIAGNOSTICO_ICONS = {
     CORRUPCION_SISTEMA_CRITICA: 'AlertTriangle',
     CONFLICTO_DE_SOFTWARE_O_LIBRERIAS: 'Cpu',
+    CONFLICTO_DE_COMPATIBILIDAD: 'GitBranchPlus', // Nuevo ícono para la nueva regla
     REINTENTAR_COMO_ADMINISTRADOR: 'Zap',
     REINSTALAR_APLICACION_LIMPIANDO_CACHE: 'RefreshCcw',
     FINALIZAR_TAREA_Y_REINICIAR_APP: 'Power',
     ACTUALIZAR_DRIVER_O_PUERTO: 'Usb',
     REINICIAR_SISTEMA_SIMPLE: 'Power',
-    // Nuevo estado de IA
     CONSULTAR_TECNICO_ESPECIALIZADO: 'Aperture', 
     DESCONOCIDO: 'HelpCircle'
 };
@@ -72,7 +75,6 @@ function renderSpinner() {
     return `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Procesando...`;
 }
 
-// NUEVA FUNCIÓN: Genera la interfaz simplificada cuando la IA detecta un patrón de fallo.
 function renderIADiagnosis(diagnosis) {
     const sessionId = diagnosis.sesion_id.substring(0, 8);
     const iaData = diagnosis.alerta_ia_data;
@@ -105,7 +107,7 @@ function renderIADiagnosis(diagnosis) {
     `;
 }
 
-// NUEVA FUNCIÓN: Cuadro de Problema Identificado (Se usa en ambos casos)
+// Cuadro de Problema Identificado (Se usa en ambos casos)
 function renderProblemaIdentificado(sintomas) {
     return `
         <div class="p-4 border rounded-xl shadow-lg border-gray-600 bg-gray-700/50 text-gray-300 mb-6">
@@ -148,7 +150,8 @@ function renderStepIndicator(step, currentStep, label) {
 function renderDiagnosisCard(diagnosis) {
     // Esta función se mantiene SÓLO si la IA NO está activa
     const IconName = DIAGNOSTICO_ICONS[diagnosis.diagnostico_principal] || 'CheckCircle';
-    const title = diagnosis.diagnostico_principal.replace(/_/g, ' ');
+    // Reemplaza _ con espacio, luego convierte a minúsculas y capitaliza la primera letra de cada palabra
+    const title = diagnosis.diagnostico_principal.replace(/_/g, ' ').toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
     return `
         <div class="p-6 border rounded-xl shadow-lg diagnosis-card border-teal-600 bg-teal-900/20 text-teal-300 mb-6">
@@ -199,136 +202,330 @@ function renderReportMessage(message, type) {
     `;
 }
 
+// --- RENDERS DEL PANEL DE ADMINISTRACIÓN ---
+
+function formatDiagnosisKey(key) {
+    if (!key) return 'N/A';
+    return key.replace(/_/g, ' ').toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+function renderAdminStats(stats) {
+    if (!stats) return `<p class="text-gray-400 text-center py-8">Cargando estadísticas...</p>`;
+    const total = stats.totales.sesiones;
+
+    return `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="p-6 bg-gray-700/50 rounded-xl shadow-lg border border-teal-600">
+                <p class="text-sm font-semibold text-teal-400 mb-2">Tasa de Éxito Global</p>
+                <p class="text-4xl font-extrabold text-white">${stats.totales.tasa_exito.toFixed(1)}%</p>
+                <p class="text-xs text-gray-400 mt-2">(${stats.totales.exitosas} de ${total} sesiones finalizadas)</p>
+            </div>
+            <div class="p-6 bg-gray-700/50 rounded-xl shadow-lg">
+                <p class="text-sm font-semibold text-yellow-400 mb-2">Sesiones Pendientes</p>
+                <p class="text-4xl font-extrabold text-white">${stats.totales.pendientes}</p>
+                <p class="text-xs text-gray-400 mt-2">Pendientes de feedback</p>
+            </div>
+            <div class="p-6 bg-gray-700/50 rounded-xl shadow-lg">
+                <p class="text-sm font-semibold text-red-400 mb-2">Tasa de Fallo</p>
+                <p class="text-4xl font-extrabold text-white">${(100 - stats.totales.tasa_exito).toFixed(1)}%</p>
+                <p class="text-xs text-gray-400 mt-2">(${stats.totales.fallidas} diagnósticos fallidos)</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="p-6 bg-gray-700/50 rounded-xl shadow-lg border border-gray-600">
+                <h4 class="text-lg font-bold text-gray-200 mb-4 flex items-center">${getIconSvg('BarChart2', 20, 'mr-2 text-teal-400')} Diagnósticos Más Comunes</h4>
+                <ul class="space-y-2">
+                    ${Object.entries(stats.diagnosticos_mas_comunes).slice(0, 5).map(([diag, count]) => `
+                        <li class="flex justify-between items-center text-sm">
+                            <span class="font-medium text-gray-300">${formatDiagnosisKey(diag)}</span>
+                            <span class="px-2 py-0.5 bg-teal-800 rounded-full text-xs text-teal-200 font-semibold">${count}</span>
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+            <div class="p-6 bg-gray-700/50 rounded-xl shadow-lg border border-gray-600">
+                <h4 class="text-lg font-bold text-gray-200 mb-4 flex items-center">${getIconSvg('Zap', 20, 'mr-2 text-red-400')} Síntomas Más Reportados</h4>
+                <ul class="space-y-2">
+                    ${Object.entries(stats.sintomas_mas_reportados).slice(0, 5).map(([symp, count]) => {
+                        // Mapear la key del síntoma a un label legible
+                        const symptomLabel = symptomList.find(s => s.key === symp)?.label || symp.replace(/_/g, ' ');
+                        return `
+                            <li class="flex justify-between items-center text-sm">
+                                <span class="font-medium text-gray-300">${symptomLabel}</span>
+                                <span class="px-2 py-0.5 bg-red-800 rounded-full text-xs text-red-200 font-semibold">${count}</span>
+                            </li>
+                        `;
+                    }).join('')}
+                </ul>
+            </div>
+        </div>
+    `;
+}
+
+function renderAdminHistorial(sesiones) {
+    if (!sesiones || sesiones.length === 0) return `<p class="text-gray-400 text-center py-8">No hay sesiones de diagnóstico registradas aún.</p>`;
+    
+    return `
+        <div class="space-y-4 max-h-96 overflow-y-auto pr-2">
+            ${sesiones.map(s => {
+                const isFailed = s.resultado === 'FALLIDO';
+                const isSuccess = s.resultado === 'EXITOSO';
+                const baseClass = "p-4 rounded-xl shadow-md border";
+                const colorClass = isFailed ? 'bg-red-900/40 border-red-700' : 
+                                     isSuccess ? 'bg-green-900/40 border-green-700' : 
+                                     'bg-gray-700/50 border-gray-600';
+                const statusColor = isFailed ? 'text-red-300' : isSuccess ? 'text-green-300' : 'text-yellow-300';
+                
+                // Corrección: Añadir verificación para 's.sintomas' antes de Object.entries
+                const symptoms = s.sintomas 
+                    ? Object.entries(s.sintomas).filter(([,v]) => v).map(([k,]) => symptomList.find(item => item.key === k)?.label || k).join(', ')
+                    : 'Datos de síntomas no disponibles';
+
+                return `
+                    <div class="${baseClass} ${colorClass}">
+                        <div class="flex justify-between items-start mb-2 border-b border-gray-600 pb-2">
+                            <p class="text-sm font-bold text-gray-300">Sesión ID: ${s.id.substring(0, 8)}</p>
+                            <span class="text-xs font-bold ${statusColor}">${s.resultado}</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-1">Diagnóstico Original: <span class="text-white">${formatDiagnosisKey(s.diagnostico_original)}</span></p>
+                        <p class="text-xs text-gray-400 mb-1">Sugerencia Final: <span class="text-white">${formatDiagnosisKey(s.diagnostico_sugerido)}</span></p>
+                        <p class="text-xs text-gray-400 italic">Síntomas: ${symptoms || 'Ninguno'}</p>
+                        ${s.alerta_ia_data.alerta_activa ? `<p class="text-xs text-amber-400 font-semibold mt-1">⚠ Alerta IA Activada: ${s.alerta_ia_data.conteo} fallos similares previos.</p>` : ''}
+                    </div>
+                `;
+            }).reverse().join('')}
+        </div>
+    `;
+}
+
+function renderAdminReportes(reportes) {
+    if (!reportes || reportes.length === 0) return `<p class="text-gray-400 text-center py-8">No hay reportes manuales registrados.</p>`;
+    
+    return `
+        <div class="space-y-4 max-h-96 overflow-y-auto pr-2">
+            ${reportes.map(r => `
+                <div class="p-4 rounded-xl shadow-md border border-gray-600 bg-gray-700/50">
+                    <div class="flex justify-between items-center mb-2">
+                        <p class="text-sm font-bold text-gray-300">Ticket ID: ${r.id.substring(0, 8)}</p>
+                        <p class="text-xs text-gray-500">${new Date(r.timestamp).toLocaleDateString()} ${new Date(r.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                    <p class="text-sm text-white italic">${r.descripcion}</p>
+                </div>
+            `).reverse().join('')}
+        </div>
+    `;
+}
+
+function renderAdminPanel() {
+    const adminData = state.adminData;
+    const currentTab = state.adminTab;
+    let content;
+
+    if (!adminData) {
+        content = `<p class="text-gray-400 text-center py-12">${renderSpinner()} Cargando datos del administrador...</p>`;
+    } else {
+        if (currentTab === 'estadisticas') {
+            content = renderAdminStats(adminData.estadisticas);
+        } else if (currentTab === 'historial') {
+            content = renderAdminHistorial(adminData.sesiones_diagnostico);
+        } else if (currentTab === 'reportes') {
+            content = renderAdminReportes(adminData.reportes_manuales);
+        }
+    }
+
+    return `
+        <h2 class="text-2xl font-semibold mb-6 text-teal-400 flex items-center border-b border-gray-700 pb-3">
+            ${getIconSvg('Settings', 28, 'mr-2')} Panel de Administración y Auditoría
+        </h2>
+
+        <div class="flex border-b border-gray-700 mb-6">
+            ${renderAdminTab('estadisticas', 'Estadísticas', 'BarChart2')}
+            ${renderAdminTab('historial', 'Historial de Sesiones', 'ScrollText')}
+            ${renderAdminTab('reportes', 'Reportes Manuales', 'MessagesSquare')}
+        </div>
+
+        <div class="min-h-72">
+            ${content}
+        </div>
+        
+        <button id="closeAdminButton" class="mt-8 mx-auto block text-gray-400 hover:text-teal-400 transition-colors flex items-center">
+            ${getIconSvg('ArrowLeft', 20, 'inline mr-2')} Volver al Diagnóstico
+        </button>
+    `;
+}
+
+function renderAdminTab(tab, label, icon) {
+    const isActive = state.adminTab === tab;
+    const baseClass = "px-4 py-2 flex items-center font-semibold border-b-2 transition-colors duration-200 cursor-pointer";
+    const activeClass = "text-teal-400 border-teal-500";
+    const inactiveClass = "text-gray-400 border-transparent hover:text-white hover:border-gray-500";
+    
+    return `
+        <button data-tab="${tab}" class="admin-tab ${baseClass} ${isActive ? activeClass : inactiveClass}">
+            ${getIconSvg(icon, 18, 'mr-2')}
+            ${label}
+        </button>
+    `;
+}
+
 // --- Render principal ---
 function render() {
     const app = document.getElementById('app');
     if (!app) return;
 
     let contentHTML = '';
+    let appContent;
 
-    const headerHTML = `
-        <header class="mb-8 border-b border-gray-700 pb-4">
-            <h1 class="text-3xl sm:text-4xl font-extrabold text-teal-400 flex items-center">
-                ${getIconSvg('Laptop', 32, 'mr-3')}
-                SISTEMA DE SOPORTE TÉCNICO
-            </h1>
-            <p class="text-gray-400 mt-1">Diagnóstico automático para problemas de software: sistema operativo, controladores (drivers) y aplicaciones.</p>
-        </header>
-        <div class="flex justify-between items-center mb-10">
-            ${renderStepIndicator(1, state.step, "1. Identificar Problema")}
-            <div class="flex-grow h-0.5 bg-gray-700 mx-2 sm:mx-4"></div>
-            ${renderStepIndicator(2, state.step, "2. Solución y Feedback")}
-        </div>
-        ${state.error ? renderError(state.error) : ''}
-        ${state.reportMessage ? renderReportMessage(state.reportMessage.msg, state.reportMessage.type) : ''}
-    `;
+    // Vista de administrador
+    if (state.step === "admin") {
+        appContent = renderAdminPanel();
+    } else {
+        // Vistas de usuario (1, 2, report)
 
-    // Paso 1: selección de síntomas
-    if (state.step === 1) {
-        const isNextDisabled = Object.values(state.symptoms).every(v => v === false);
-        contentHTML = `
-            <h2 class="text-2xl font-semibold mb-6 text-gray-200">¿Qué está sucediendo con tu sistema?</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                ${symptomList.map(renderSymptomCard).join('')}
-            </div>
-
-            <div class="flex justify-between mt-8">
-                <button id="reportButton" type="button"
-                    class="flex items-center bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-3 rounded-lg font-bold shadow-md transition-colors">
-                    ${getIconSvg('Plus', 18, 'mr-2')} Reportar otro problema
-                </button>
-
-                <button id="diagnoseButton"
-                        ${isNextDisabled || state.isLoading ? 'disabled' : ''}
-                        class="flex items-center px-8 py-3 rounded-full font-bold transition-all duration-300 ${
-                            isNextDisabled || state.isLoading
-                                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                                : 'bg-teal-600 hover:bg-teal-500 text-white shadow-xl'
-                        }">
-                    ${state.isLoading ? renderSpinner() : 'Diagnosticar Problema'}
-                    ${!state.isLoading ? getIconSvg('ArrowRight', 20, 'ml-2') : ''}
+        const headerHTML = `
+            <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-4">
+                <h1 class="text-3xl sm:text-4xl font-extrabold text-teal-400 flex items-center">
+                    ${getIconSvg('Laptop', 32, 'mr-3')}
+                    SISTEMA DE SOPORTE TÉCNICO
+                </h1>
+                <button id="openAdminButton" class="text-gray-400 hover:text-teal-400 transition-colors flex items-center text-sm font-medium">
+                    ${getIconSvg('Settings', 16, 'mr-1')} Admin
                 </button>
             </div>
+            <p class="text-gray-400 mt-1 mb-8">Diagnóstico automático para problemas de software: sistema operativo, controladores (drivers) y aplicaciones.</p>
         `;
-    }
 
-    // Paso 2: diagnóstico y feedback
-    else if (state.step === 2 && state.diagnosis) {
-        const iaActiva = state.diagnosis.alerta_ia_activa;
+        contentHTML += headerHTML;
         
-        let solutionSteps = state.diagnosis.detalles_recomendaciones;
-        let sintomasIdentificados = state.diagnosis.sintomas_activos.join(', ');
-
-
-        contentHTML = `
-            ${renderProblemaIdentificado(sintomasIdentificados)}
-
-            ${iaActiva 
-                ? renderIADiagnosis(state.diagnosis) // Muestra la interfaz simplificada de IA
-                : renderDiagnosisCard(state.diagnosis) // Muestra el diagnóstico estándar
-            }
-            
-            ${!iaActiva ? `
-                <!-- Pasos a Seguir para Solucionar (Solo si la IA NO está activa) -->
-                <div class="mt-8 p-6 bg-gray-700/50 rounded-xl shadow-lg border border-gray-600">
-                    <h3 class="text-xl font-semibold mb-4 text-gray-200 flex items-center border-b border-gray-700 pb-2">
-                        ${getIconSvg('ListOrdered', 20, 'mr-2 text-teal-400')}
-                        Pasos a Seguir para Solucionar
-                    </h3>
-                    <ol class="space-y-3 list-none text-gray-300">
-                        ${solutionSteps.map((rec, index) => `
-                            <li class="pl-2 flex items-start">
-                                <span class="font-medium text-teal-400 mr-3 mt-0.5">${index + 1}.</span>
-                                ${rec}
-                            </li>
-                        `).join('')}
-                    </ol>
+        // Indicador de pasos sólo para la vista principal de diagnóstico
+        if (state.step === 1 || state.step === 2) {
+             contentHTML += `
+                <div class="flex justify-between items-center mb-10">
+                    ${renderStepIndicator(1, state.step, "1. Identificar Problema")}
+                    <div class="flex-grow h-0.5 bg-gray-700 mx-2 sm:mx-4"></div>
+                    ${renderStepIndicator(2, state.step, "2. Solución y Feedback")}
                 </div>
-            ` : ''}
+            `;
+        }
 
-            <div class="mt-12 pt-6 border-t border-gray-700">
+        // Mensajes de error/reporte
+        contentHTML += `
+            ${state.error ? renderError(state.error) : ''}
+            ${state.reportMessage ? renderReportMessage(state.reportMessage.msg, state.reportMessage.type) : ''}
+        `;
+
+
+        // Paso 1: selección de síntomas
+        if (state.step === 1) {
+            const isNextDisabled = Object.values(state.symptoms).every(v => v === false);
+            contentHTML += `
+                <h2 class="text-2xl font-semibold mb-6 text-gray-200">¿Qué está sucediendo con tu sistema?</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    ${symptomList.map(renderSymptomCard).join('')}
+                </div>
+
+                <div class="flex justify-between mt-8">
+                    <button id="reportButton" type="button"
+                        class="flex items-center bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-3 rounded-lg font-bold shadow-md transition-colors">
+                        ${getIconSvg('Plus', 18, 'mr-2')} Reportar otro problema
+                    </button>
+
+                    <button id="diagnoseButton"
+                            ${isNextDisabled || state.isLoading ? 'disabled' : ''}
+                            class="flex items-center px-8 py-3 rounded-full font-bold transition-all duration-300 ${
+                                isNextDisabled || state.isLoading
+                                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                                    : 'bg-teal-600 hover:bg-teal-500 text-white shadow-xl'
+                            }">
+                        ${state.isLoading ? renderSpinner() : 'Diagnosticar Problema'}
+                        ${!state.isLoading ? getIconSvg('ArrowRight', 20, 'ml-2') : ''}
+                    </button>
+                </div>
+            `;
+        }
+
+        // Paso 2: diagnóstico y feedback
+        else if (state.step === 2 && state.diagnosis) {
+            const iaActiva = state.diagnosis.alerta_ia_activa;
+            
+            let solutionSteps = state.diagnosis.detalles_recomendaciones;
+            
+            // **CORRECCIÓN AQUÍ:** Se utiliza el operador || [] para garantizar que sea un array
+            let sintomasIdentificados = (state.diagnosis.sintomas_activos || []).join(', ');
+
+
+            contentHTML += `
+                ${renderProblemaIdentificado(sintomasIdentificados)}
+
+                ${iaActiva 
+                    ? renderIADiagnosis(state.diagnosis) // Muestra la interfaz simplificada de IA
+                    : renderDiagnosisCard(state.diagnosis) // Muestra el diagnóstico estándar
+                }
+                
                 ${!iaActiva ? `
-                    <!-- Feedback buttons (Solo si la IA NO está activa) -->
-                    <h3 class="text-xl font-semibold mb-4 text-center text-teal-400">¿Esta Solución Resolvió el Problema?</h3>
-                    <div class="flex justify-center space-x-6">
-                        ${renderFeedbackButton('SÍ, Éxito', 'EXITOSO', 'green', 'CheckCircle')}
-                        ${renderFeedbackButton('NO, Falló', 'FALLIDO', 'red', 'XCircle')}
+                    <!-- Pasos a Seguir para Solucionar (Solo si la IA NO está activa) -->
+                    <div class="mt-8 p-6 bg-gray-700/50 rounded-xl shadow-lg border border-gray-600">
+                        <h3 class="text-xl font-semibold mb-4 text-gray-200 flex items-center border-b border-gray-700 pb-2">
+                            ${getIconSvg('ListOrdered', 20, 'mr-2 text-teal-400')}
+                            Pasos a Seguir para Solucionar
+                        </h3>
+                        <ol class="space-y-3 list-none text-gray-300">
+                            ${solutionSteps.map((rec, index) => `
+                                <li class="pl-2 flex items-start">
+                                    <span class="font-medium text-teal-400 mr-3 mt-0.5">${index + 1}.</span>
+                                    ${rec}
+                                </li>
+                            `).join('')}
+                        </ol>
                     </div>
                 ` : ''}
 
-                <!-- Botón de Reset (siempre visible, con estilos ajustados según IA) -->
-                <button id="resetButton" class="mt-6 mx-auto block text-gray-400 hover:text-teal-400 transition-colors flex items-center ${iaActiva ? 'text-lg font-bold' : ''}">
-                    ${getIconSvg('ArrowLeft', iaActiva ? 24 : 16, 'inline mr-2')} Iniciar un Nuevo Diagnóstico
-                </button>
-            </div>
-        `;
-    }
+                <div class="mt-12 pt-6 border-t border-gray-700">
+                    ${!iaActiva ? `
+                        <!-- Feedback buttons (Solo si la IA NO está activa) -->
+                        <h3 class="text-xl font-semibold mb-4 text-center text-teal-400">¿Esta Solución Resolvió el Problema?</h3>
+                        <div class="flex justify-center space-x-6">
+                            ${renderFeedbackButton('SÍ, Éxito', 'EXITOSO', 'green', 'CheckCircle')}
+                            ${renderFeedbackButton('NO, Falló', 'FALLIDO', 'red', 'XCircle')}
+                        </div>
+                    ` : ''}
 
-    // Paso "report": formulario para reportar problema
-    else if (state.step === "report") {
-        contentHTML = `
-            <h2 class="text-2xl font-semibold mb-6 text-gray-200">Desarrolle su Problema (Para futuros análisis)</h2>
-            <textarea id="userReport" rows="7"
-                class="w-full p-4 rounded-xl bg-gray-700 text-white placeholder-gray-400 focus:outline-teal-500 focus:ring-2 focus:ring-teal-500 resize-none"
-                placeholder="Escriba aquí los detalles de su problema (ej: el programa 'X' falla solo cuando abro el navegador 'Y')..."></textarea>
-            <div class="flex justify-end mt-6 space-x-4">
-                <button id="saveReportButton"
-                    class="px-6 py-3 bg-teal-600 hover:bg-teal-500 rounded-lg font-bold text-white shadow-lg flex items-center transition-colors">
-                    ${getIconSvg('Save', 20, 'mr-2')} Guardar reporte y generar ticket
-                </button>
-                <button id="cancelReportButton"
-                    class="px-6 py-3 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white shadow-lg transition-colors">
-                    Cancelar
-                </button>
-            </div>
-        `;
+                    <!-- Botón de Reset (siempre visible, con estilos ajustados según IA) -->
+                    <button id="resetButton" class="mt-6 mx-auto block text-gray-400 hover:text-teal-400 transition-colors flex items-center ${iaActiva ? 'text-lg font-bold' : ''}">
+                        ${getIconSvg('ArrowLeft', iaActiva ? 24 : 16, 'inline mr-2')} Iniciar un Nuevo Diagnóstico
+                    </button>
+                </div>
+            `;
+        }
+
+        // Paso "report": formulario para reportar problema
+        else if (state.step === "report") {
+            contentHTML += `
+                <h2 class="text-2xl font-semibold mb-6 text-gray-200">Desarrolle su Problema (Para futuros análisis)</h2>
+                <textarea id="userReport" rows="7"
+                    class="w-full p-4 rounded-xl bg-gray-700 text-white placeholder-gray-400 focus:outline-teal-500 focus:ring-2 focus:ring-teal-500 resize-none"
+                    placeholder="Escriba aquí los detalles de su problema (ej: el programa 'X' falla solo cuando abro el navegador 'Y')..."></textarea>
+                <div class="flex justify-end mt-6 space-x-4">
+                    <button id="saveReportButton"
+                        class="px-6 py-3 bg-teal-600 hover:bg-teal-500 rounded-lg font-bold text-white shadow-lg flex items-center transition-colors">
+                        ${getIconSvg('Save', 20, 'mr-2')} Guardar reporte y generar ticket
+                    </button>
+                    <button id="cancelReportButton"
+                        class="px-6 py-3 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white shadow-lg transition-colors">
+                        Cancelar
+                    </button>
+                </div>
+            `;
+        }
+        
+        appContent = contentHTML;
     }
 
     // Inyectar
     app.innerHTML = `
         <div class="w-full max-w-4xl bg-gray-800/80 backdrop-blur-md rounded-2xl shadow-2xl p-6 sm:p-10 text-white">
-            ${headerHTML}
-            ${contentHTML}
+            ${appContent}
         </div>
     `;
 
@@ -343,11 +540,13 @@ function attachEvents() {
     // Síntomas: toggle
     document.querySelectorAll('.symptom-card').forEach(card => {
         card.onclick = () => {
-            const key = card.getAttribute('data-key');
-            if (Object.prototype.hasOwnProperty.call(state.symptoms, key)) {
-                state.symptoms[key] = !state.symptoms[key];
-                state.reportMessage = null; // Limpiar mensaje de reporte al interactuar
-                render();
+            if (state.step === 1) { // Solo permitir la interacción en el paso 1
+                const key = card.getAttribute('data-key');
+                if (Object.prototype.hasOwnProperty.call(state.symptoms, key)) {
+                    state.symptoms[key] = !state.symptoms[key];
+                    state.reportMessage = null; // Limpiar mensaje de reporte al interactuar
+                    render();
+                }
             }
         };
     });
@@ -388,7 +587,70 @@ function attachEvents() {
     const resetBtn = document.getElementById('resetButton');
     if (resetBtn) resetBtn.onclick = resetSystem;
 
+    // Abrir Admin Panel
+    const openAdminBtn = document.getElementById('openAdminButton');
+    if (openAdminBtn) openAdminBtn.onclick = openAdminPanel;
+
+    // Cerrar Admin Panel
+    const closeAdminBtn = document.getElementById('closeAdminButton');
+    if (closeAdminBtn) closeAdminBtn.onclick = () => {
+        state.step = 1;
+        state.adminData = null; // Limpiar datos al salir
+        render();
+    };
+
+    // Cambiar pestañas de Admin
+    document.querySelectorAll('.admin-tab').forEach(tab => {
+        tab.onclick = (e) => {
+            const newTab = e.currentTarget.getAttribute('data-tab');
+            if (newTab !== state.adminTab) {
+                state.adminTab = newTab;
+                render();
+            }
+        };
+    });
+
     lucide.createIcons();
+}
+
+// --- Lógica del Admin Panel ---
+async function openAdminPanel() {
+    state.step = "admin";
+    state.isLoading = true;
+    state.error = null;
+    state.adminData = null;
+    render();
+    
+    try {
+        // Ejecución de llamadas concurrentes para cargar ambos conjuntos de datos
+        // RUTAS CORREGIDAS: /admin/historial y /admin/estadisticas
+        const [historialRes, statsRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/admin/historial`),
+            fetch(`${API_BASE_URL}/admin/estadisticas`)
+        ]);
+
+        if (!historialRes.ok) throw new Error(`Error ${historialRes.status} al cargar historial.`);
+        if (!statsRes.ok) throw new Error(`Error ${statsRes.status} al cargar estadísticas.`);
+        
+        const historialData = await historialRes.json();
+        const statsData = await statsRes.json();
+
+        state.adminData = {
+            ...historialData,
+            estadisticas: statsData
+        };
+        
+        // La lógica de la IA es parte de las estadísticas o del historial, 
+        // por lo que los 404 a las rutas antiguas ya no deberían ocurrir.
+
+    } catch (err) {
+        console.error('Error Admin Panel:', err);
+        // Mostrar un error genérico pero útil si falla la carga.
+        state.error = "Error al cargar el panel de administración. Asegúrese de que el servidor FastAPI esté corriendo en la ruta correcta.";
+    }
+
+    state.isLoading = false;
+    render();
 }
 
 // --- API calls ---
@@ -404,7 +666,7 @@ async function sendDiagnosis() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(state.symptoms)
         });
-        if (!res.ok) throw new Error('Error en /diagnosticar');
+        if (!res.ok) throw new Error(`Error ${res.status} en /diagnosticar`);
         const data = await res.json();
         state.diagnosis = data;
         state.sessionId = data.sesion_id || null;
@@ -438,10 +700,10 @@ async function sendReport() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ descripcion: reportText })
         });
-        if (!res.ok) throw new Error('Error al guardar reporte en servidor');
+        if (!res.ok) throw new Error(`Error ${res.status} al guardar reporte en servidor`);
         const data = await res.json();
         
-        state.reportMessage = {msg: `✅ Reporte guardado correctamente. Ticket ID: ${data.id}`, type: 'success'};
+        state.reportMessage = {msg: `✅ Reporte guardado correctamente. Ticket ID: ${data.id.substring(0, 8)}`, type: 'success'};
         state.step = 1;
         
     } catch (err) {
@@ -463,7 +725,7 @@ async function sendFeedback(result) {
         const res = await fetch(`${API_BASE_URL}/feedback/${state.sessionId}?resultado=${result}`, {
             method: 'POST'
         });
-        if (!res.ok) throw new Error('Error al enviar feedback');
+        if (!res.ok) throw new Error(`Error ${res.status} al enviar feedback`);
         
         // Simulación de carga para que se note que el feedback se procesó
         await new Promise(resolve => setTimeout(resolve, 500)); 
@@ -493,6 +755,8 @@ function resetSystem() {
         isLoading: false,
         error: null,
         reportMessage: null,
+        adminData: null,
+        adminTab: 'estadisticas',
     };
     render();
 }

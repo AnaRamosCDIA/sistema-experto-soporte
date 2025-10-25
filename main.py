@@ -1,5 +1,4 @@
-#Servidor FastAPI y Lógica de Patrones
-
+# main.py
 from datetime import datetime
 import uvicorn
 import uuid
@@ -7,7 +6,7 @@ from typing import List, Dict, Any
 from pydantic import BaseModel
 import json
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 # Importa la lógica experta y el modelo de datos desde la subcarpeta
 from experto_soporte.engine import Sintomas, motor_reglas
@@ -47,16 +46,19 @@ def buscar_patrones(sintomas: Sintomas, diagnostico_principal: str) -> Dict[str,
     sintomas_activos = [k for k, v in sintomas.model_dump().items() if v]
 
     for sesion in historial_sesiones:
-        sesion_sintomas_activos = [k for k, v in sesion['sintomas'].items() if v]
-        
-        # Compara si los síntomas son idénticos (usamos sorted para ignorar el orden)
-        if sorted(sesion_sintomas_activos) == sorted(sintomas_activos):
+        # Añadir verificación de existencia para evitar errores si 'sintomas' no está en un historial antiguo
+        if 'sintomas' in sesion:
+            sesion_sintomas_activos = [k for k, v in sesion['sintomas'].items() if v]
             
-            # Verifica si el diagnóstico sugerido falló anteriormente
-            if sesion.get('diagnostico_original') == diagnostico_principal and sesion.get('resultado') == 'FALLIDO':
-                patrones_de_falla += 1
+            # Compara si los síntomas son idénticos (usamos sorted para ignorar el orden)
+            if sorted(sesion_sintomas_activos) == sorted(sintomas_activos):
+                
+                # Verifica si el diagnóstico sugerido falló anteriormente y si ya fue evaluado
+                if sesion.get('diagnostico_original') == diagnostico_principal and sesion.get('resultado') == 'FALLIDO':
+                    patrones_de_falla += 1
     
     # Umbral de activación de la alerta de patrón (IA)
+    # Se activa si ya hay 2 fallos previos (el tercer intento)
     if patrones_de_falla >= 2:
         return {
             "alerta_activa": True,
@@ -64,7 +66,7 @@ def buscar_patrones(sintomas: Sintomas, diagnostico_principal: str) -> Dict[str,
             "mensaje_notificacion": f"Se detectaron {patrones_de_falla} fallos previos similares.",
         }
     
-    return {"alerta_activa": False}
+    return {"alerta_activa": False, "conteo": 0, "mensaje_notificacion": "No se detectó patrón de falla."}
 
 # Archivo JSON donde se guardarán los reportes
 JSON_FILE = "reportes_problemas.json"
@@ -75,8 +77,12 @@ class Reporte(BaseModel):
 
 # Crear archivo JSON si no existe
 if not os.path.exists(JSON_FILE):
-    with open(JSON_FILE, "w") as f:
-        json.dump([], f)
+    try:
+        with open(JSON_FILE, "w") as f:
+            json.dump([], f)
+    except Exception:
+        # No hace falta levantar la excepción aquí, pero es bueno ser explícito
+        pass
 
 # --- ENDPOINTS DE LA API ---
 
@@ -106,7 +112,9 @@ async def reportar_problema(reporte: Reporte):
         return {"mensaje": "Reporte guardado correctamente", "id": nueva_entrada["id"]}
 
     except Exception as e:
-        return {"error": str(e)}
+        # Aseguramos que los errores se devuelvan como HTTP 500
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/diagnosticar")
 async def diagnosticar_problema(sintomas: Sintomas):
@@ -167,14 +175,14 @@ async def diagnosticar_problema(sintomas: Sintomas):
     ]
 
     # Mapeo de keys de síntomas a labels legibles para la UI
-    # Se corrige el NameError extrayendo 'item["label"]'
+    # Este array es el que el frontend usa como 'sintomas_activos'
     sintomas_mapeados = [item['label'] for key, active in sintomas_activos_dict.items() if active 
                          for item in SYMPTOM_MAPPING if item['key'] == key]
 
     # Preparar respuesta final para el frontend
     respuesta = {
         "sesion_id": sesion_id,
-        "sintomas_activos": sintomas_mapeados, # Lista de strings de síntomas
+        "sintomas_activos": sintomas_mapeados, # <-- ¡Aseguramos que esto esté aquí!
         "diagnostico_principal": diagnostico_original, # Causa Raíz (para la caja verde)
         "diagnostico_accion_final": diagnostico_accion_final, # Acción final (para los pasos a seguir)
         "justificacion_regla": justificacion_regla, 
@@ -199,7 +207,59 @@ async def registrar_feedback(sesion_id: str, resultado: str):
                 # log the feedback, but do not use print()
                 return {"mensaje": f"Feedback registrado ({resultado}) para la sesión {sesion_id}. El historial de patrones se ha actualizado."}
 
-    return {"mensaje": "Error: Sesión no encontrada."}, 404
+    raise HTTPException(status_code=404, detail="Sesión no encontrada.")
+
+# --- ENDPOINTS DEL PANEL ADMINISTRADOR ---
+
+@app.get("/admin/historial")
+async def obtener_historial():
+    """Retorna el historial de sesiones en memoria y los reportes de problemas."""
+    try:
+        with open(JSON_FILE, "r") as f:
+            reportes_problemas = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        reportes_problemas = []
+        
+    return {
+        "sesiones_diagnostico": historial_sesiones,
+        "reportes_manuales": reportes_problemas
+    }
+
+@app.get("/admin/estadisticas")
+async def obtener_estadisticas():
+    """Genera estadísticas clave del historial de sesiones."""
+    total_sesiones = len(historial_sesiones)
+    fallidas = sum(1 for s in historial_sesiones if s.get('resultado') == 'FALLIDO')
+    exitosas = sum(1 for s in historial_sesiones if s.get('resultado') == 'EXITOSO')
+    pendientes = total_sesiones - fallidas - exitosas
+    
+    # Conteo de diagnósticos principales y síntomas
+    conteo_diagnosticos = {}
+    conteo_sintomas = {}
+    
+    for sesion in historial_sesiones:
+        diag = sesion.get('diagnostico_sugerido', 'DESCONOCIDO')
+        conteo_diagnosticos[diag] = conteo_diagnosticos.get(diag, 0) + 1
+        
+        # Conteo de síntomas activos (solo keys que son True)
+        if 'sintomas' in sesion: # Validación añadida para robustez
+            for k, v in sesion['sintomas'].items():
+                # Corregir lógica: la clave 'sintomas' en el historial de sesión contiene el diccionario de síntomas bool.
+                # Aseguramos que 'v' sea booleano antes de la verificación
+                if isinstance(v, bool) and v:
+                    conteo_sintomas[k] = conteo_sintomas.get(k, 0) + 1
+
+    return {
+        "totales": {
+            "sesiones": total_sesiones,
+            "fallidas": fallidas,
+            "exitosas": exitosas,
+            "pendientes": pendientes,
+            "tasa_exito": (exitosas / total_sesiones * 100) if total_sesiones > 0 else 0
+        },
+        "diagnosticos_mas_comunes": dict(sorted(conteo_diagnosticos.items(), key=lambda item: item[1], reverse=True)),
+        "sintomas_mas_reportados": dict(sorted(conteo_sintomas.items(), key=lambda item: item[1], reverse=True))
+    }
 
 # Script para iniciar el servidor uvicorn si se ejecuta este archivo directamente
 if __name__ == "__main__":
