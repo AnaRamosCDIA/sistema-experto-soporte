@@ -3,13 +3,18 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Sistema Experto de Soporte IA</title>
+    <title>Sistema de Soporte Técnico</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #0d1117; }
         .diagnosis-card { transition: all 0.3s ease-in-out; }
         .step-indicator { transition: all 0.5s ease-in-out; }
+        /* Animación para la Alerta IA */
+        @keyframes pulse-ring {
+          0% { transform: scale(0.3); opacity: 0.8; }
+          100% { transform: scale(1.5); opacity: 0; }
+        }
     </style>
 </head>
 <body class="bg-gray-900">
@@ -17,9 +22,10 @@
 <div id="app" class="min-h-screen p-4 sm:p-8 flex items-center justify-center"></div>
 
 <script>
+// La URL base de la API, necesaria para la comunicación del frontend con el backend.
 const API_BASE_URL = 'http://127.0.0.1:8000';
 
-// Estado global
+// Estado global de la aplicación
 let state = {
     step: 1, // 1 = selección, 2 = diagnóstico, "report" = form reporte
     symptoms: {
@@ -33,6 +39,7 @@ let state = {
     sessionId: null,
     isLoading: false,
     error: null,
+    reportMessage: null, // Para mostrar mensajes de éxito/error sin usar alert()
 };
 
 const symptomList = [
@@ -44,131 +51,70 @@ const symptomList = [
 ];
 
 const DIAGNOSTICO_ICONS = {
-    RESTAURAR_SISTEMA_O_DRIVERS_CRITICOS: 'Power',
+    CORRUPCION_SISTEMA_CRITICA: 'AlertTriangle',
     CONFLICTO_DE_SOFTWARE_O_LIBRERIAS: 'Cpu',
     REINTENTAR_COMO_ADMINISTRADOR: 'Zap',
-    REINSTALAR_APLICACION_LIMPIANDO_CACHE: 'CheckCircle',
+    REINSTALAR_APLICACION_LIMPIANDO_CACHE: 'RefreshCcw',
     FINALIZAR_TAREA_Y_REINICIAR_APP: 'Power',
     ACTUALIZAR_DRIVER_O_PUERTO: 'Usb',
     REINICIAR_SISTEMA_SIMPLE: 'Power',
+    // Nuevo estado de IA
+    CONSULTAR_TECNICO_ESPECIALIZADO: 'Aperture', 
+    DESCONOCIDO: 'HelpCircle'
 };
-
-// --- Render principal ---
-function render() {
-    const app = document.getElementById('app');
-    if (!app) return;
-
-    let contentHTML = '';
-
-    const headerHTML = `
-        <header class="mb-8 border-b border-gray-700 pb-4">
-            <h1 class="text-3xl sm:text-4xl font-extrabold text-teal-400 flex items-center">
-                ${getIconSvg('Cpu', 32, 'mr-3')}
-                Sistema Experto de Soporte IA
-            </h1>
-            <p class="text-gray-400 mt-1">Diagnóstico inteligente para problemas de software y drivers.</p>
-        </header>
-        <div class="flex justify-between items-center mb-10">
-            ${renderStepIndicator(1, state.step, "1. Identificar Problema")}
-            <div class="flex-grow h-0.5 bg-gray-700 mx-2 sm:mx-4"></div>
-            ${renderStepIndicator(2, state.step, "2. Solución y Feedback")}
-        </div>
-        ${state.error ? renderError(state.error) : ''}
-    `;
-
-    // Paso 1: selección de síntomas
-    if (state.step === 1) {
-        const isNextDisabled = Object.values(state.symptoms).every(v => v === false);
-        contentHTML = `
-            <h2 class="text-2xl font-semibold mb-6 text-gray-200">¿Qué está sucediendo con tu sistema?</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                ${symptomList.map(renderSymptomCard).join('')}
-            </div>
-
-            <div class="flex justify-between mt-8">
-                <button id="reportButton" type="button"
-                    class="flex items-center bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-3 rounded-lg font-bold shadow-md">
-                    ${getIconSvg('Plus', 18, 'mr-2')} Reportar otro problema
-                </button>
-
-                <button id="diagnoseButton"
-                        ${isNextDisabled || state.isLoading ? 'disabled' : ''}
-                        class="flex items-center px-8 py-3 rounded-full font-bold transition-all duration-300 ${
-                            isNextDisabled || state.isLoading
-                                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                                : 'bg-teal-600 hover:bg-teal-500 text-white'
-                        }">
-                    ${state.isLoading ? `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>` : 'Diagnosticar Problema'}
-                    ${!state.isLoading ? getIconSvg('ArrowRight', 20, 'ml-2') : ''}
-                </button>
-            </div>
-        `;
-    }
-
-    // Paso 2: diagnóstico y feedback
-    else if (state.step === 2 && state.diagnosis) {
-        contentHTML = `
-            ${renderDiagnosisCard(state.diagnosis)}
-            <h3 class="text-xl font-semibold mt-8 mb-4 border-b border-gray-700 pb-2 text-gray-200">Pasos de Solución Detallados</h3>
-            <ol class="space-y-3 list-decimal list-inside text-gray-300">
-                ${state.diagnosis.detalles_recomendaciones.map((rec, index) => `
-                    <li class="pl-2 flex items-start">
-                        <span class="font-medium text-teal-400 mr-2">${index + 1}.</span>
-                        ${rec}
-                    </li>
-                `).join('')}
-            </ol>
-
-            <div class="mt-12 pt-6 border-t border-gray-700">
-                <h3 class="text-xl font-semibold mb-4 text-center text-teal-400">¿Esta Solución Resolvió el Problema?</h3>
-                <div class="flex justify-center space-x-6">
-                    ${renderFeedbackButton('SÍ, Éxito', 'EXITOSO', 'green', 'CheckCircle')}
-                    ${renderFeedbackButton('NO, Falló', 'FALLIDO', 'red', 'XCircle')}
-                </div>
-                <button id="resetButton" class="mt-6 mx-auto block text-gray-400 hover:text-teal-400 transition-colors">
-                    ${getIconSvg('ArrowLeft', 16, 'inline mr-1')} Iniciar un Nuevo Diagnóstico
-                </button>
-            </div>
-        `;
-    }
-
-    // Paso "report": formulario para reportar problema
-    else if (state.step === "report") {
-        contentHTML = `
-            <h2 class="text-2xl font-semibold mb-6 text-gray-200">Desarrolle su Problema</h2>
-            <textarea id="userReport" rows="7"
-                class="w-full p-4 rounded-xl bg-gray-700 text-white placeholder-gray-400 focus:outline-teal-500"
-                placeholder="Escriba aquí los detalles de su problema..."></textarea>
-            <div class="flex justify-end mt-6 space-x-4">
-                <button id="saveReportButton"
-                    class="px-6 py-3 bg-teal-600 hover:bg-teal-500 rounded-lg font-bold text-white shadow-lg flex items-center">
-                    ${getIconSvg('Save', 20, 'mr-2')} Guardar reporte y generar ticket
-                </button>
-                <button id="cancelReportButton"
-                    class="px-6 py-3 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white shadow-lg">
-                    Cancelar
-                </button>
-            </div>
-        `;
-    }
-
-    // Inyectar
-    app.innerHTML = `
-        <div class="w-full max-w-4xl bg-gray-800/80 backdrop-blur-md rounded-2xl shadow-2xl p-6 sm:p-10 text-white">
-            ${headerHTML}
-            ${contentHTML}
-        </div>
-    `;
-
-    // Asignar eventos después de inyectar HTML
-    attachEvents();
-    // Crear iconos
-    lucide.createIcons();
-}
 
 // --- Auxiliares de render ---
 function getIconSvg(name, size = 24, classes = '') {
     return `<span class="${classes}" data-lucide="${name}" width="${size}" height="${size}"></span>`;
+}
+
+function renderSpinner() {
+    return `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Procesando...`;
+}
+
+// NUEVA FUNCIÓN: Genera la interfaz simplificada cuando la IA detecta un patrón de fallo.
+function renderIADiagnosis(diagnosis) {
+    const sessionId = diagnosis.sesion_id.substring(0, 8);
+    const iaData = diagnosis.alerta_ia_data;
+    const conteo = iaData.conteo;
+    
+    return `
+        <!-- Cuadro de Estado (Falla Persistente Detectada) -->
+        <div class="p-5 border-4 border-amber-500 bg-amber-900/40 rounded-xl shadow-2xl relative overflow-hidden mb-6">
+            <div class="relative flex items-start space-x-4">
+                ${getIconSvg('AlertOctagon', 40, 'flex-shrink-0 text-amber-400')}
+                <div>
+                    <h3 class="text-xl font-extrabold text-amber-300">⚠ Estado: Falla Persistente Detectada</h3>
+                    <p class="mt-1 text-white font-medium">
+                        Se detectaron ${conteo} fallos previos similares. Su caso (ID: ${sessionId}) fue registrado y notificado para optimizar el sistema.
+                    </p>
+                    <p class="text-sm text-amber-200 mt-2 italic font-semibold">
+                        Las soluciones estándar no son efectivas en este patrón de fallo.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cuadro de Recomendación -->
+        <div class="p-6 border rounded-xl shadow-lg border-teal-600 bg-teal-900/20 text-teal-300 mb-6">
+            <div class="flex items-center space-x-4">
+                ${getIconSvg('Aperture', 32, 'flex-shrink-0')}
+                <p class="text-xl font-extrabold text-white">RECOMENDACIÓN: Contactarse con un profesional técnico especializado</p>
+            </div>
+        </div>
+    `;
+}
+
+// NUEVA FUNCIÓN: Cuadro de Problema Identificado (Se usa en ambos casos)
+function renderProblemaIdentificado(sintomas) {
+    return `
+        <div class="p-4 border rounded-xl shadow-lg border-gray-600 bg-gray-700/50 text-gray-300 mb-6">
+            <p class="text-sm font-semibold text-gray-400 mb-2 flex items-center">
+                ${getIconSvg('Search', 16, 'mr-2 text-teal-400')} PROBLEMA IDENTIFICADO
+            </p>
+            <p class="text-base font-medium text-white">${sintomas}</p>
+        </div>
+    `;
 }
 
 function renderSymptomCard(symptom) {
@@ -194,28 +140,34 @@ function renderStepIndicator(step, currentStep, label) {
     return `
         <div class="flex items-center step-indicator">
             <div class="${circleClasses}">${isCompleted ? '✓' : step}</div>
-            <span class="ml-3 text-sm font-semibold ${isActive ? 'text-white' : 'text-gray-500'}">${label}</span>
+            <span class="ml-3 text-sm font-semibold ${isActive || isCompleted ? 'text-white' : 'text-gray-500'}">${label}</span>
         </div>
     `;
 }
 
 function renderDiagnosisCard(diagnosis) {
+    // Esta función se mantiene SÓLO si la IA NO está activa
     const IconName = DIAGNOSTICO_ICONS[diagnosis.diagnostico_principal] || 'CheckCircle';
+    const title = diagnosis.diagnostico_principal.replace(/_/g, ' ');
+
     return `
         <div class="p-6 border rounded-xl shadow-lg diagnosis-card border-teal-600 bg-teal-900/20 text-teal-300 mb-6">
-            <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-4 mb-4">
                 ${getIconSvg(IconName, 40, 'flex-shrink-0')}
                 <div>
-                    <h2 class="text-2xl font-bold text-white">Diagnóstico Principal:</h2>
-                    <p class="text-3xl font-extrabold text-white mt-1">${diagnosis.diagnostico_principal.replace(/_/g, ' ')}</p>
+                    <p class="text-xs font-semibold text-gray-400">DIAGNÓSTICO:</p>
+                    <p class="text-3xl font-extrabold text-white mt-1">${title}</p>
                 </div>
             </div>
+            <p class="mt-4 pt-3 border-t border-teal-700 text-sm font-light text-gray-300">
+                ${diagnosis.justificacion_regla}
+            </p>
         </div>
     `;
 }
 
 function renderFeedbackButton(label, result, color, icon) {
-    const base = `flex items-center px-6 py-3 rounded-lg font-bold text-white shadow-md`;
+    const base = `flex items-center px-6 py-3 rounded-lg font-bold text-white shadow-md transition-all duration-200`;
     const dynamic = color === 'green' ? 'bg-green-600 hover:bg-green-500' : 'bg-red-600 hover:bg-red-500';
     return `<button data-result="${result}" class="feedback-button ${base} ${dynamic}">${getIconSvg(icon, 20, 'mr-2')}${label}</button>`;
 }
@@ -229,55 +181,213 @@ function renderError(message) {
     `;
 }
 
+function renderReportMessage(message, type) {
+    const base = "mb-4 p-4 rounded-lg flex items-center";
+    let dynamicClass, icon;
+    if (type === 'success') {
+        dynamicClass = "bg-green-800/50 border border-green-700 text-green-300";
+        icon = 'CheckCircle';
+    } else {
+        dynamicClass = "bg-red-800/50 border border-red-700 text-red-300";
+        icon = 'XCircle';
+    }
+    return `
+        <div class="${base} ${dynamicClass}">
+            ${getIconSvg(icon, 20, 'mr-3')}
+            <span class="font-semibold">${message}</span>
+        </div>
+    `;
+}
+
+// --- Render principal ---
+function render() {
+    const app = document.getElementById('app');
+    if (!app) return;
+
+    let contentHTML = '';
+
+    const headerHTML = `
+        <header class="mb-8 border-b border-gray-700 pb-4">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-teal-400 flex items-center">
+                ${getIconSvg('Laptop', 32, 'mr-3')}
+                SISTEMA DE SOPORTE TÉCNICO
+            </h1>
+            <p class="text-gray-400 mt-1">Diagnóstico automático para problemas de software: sistema operativo, controladores (drivers) y aplicaciones.</p>
+        </header>
+        <div class="flex justify-between items-center mb-10">
+            ${renderStepIndicator(1, state.step, "1. Identificar Problema")}
+            <div class="flex-grow h-0.5 bg-gray-700 mx-2 sm:mx-4"></div>
+            ${renderStepIndicator(2, state.step, "2. Solución y Feedback")}
+        </div>
+        ${state.error ? renderError(state.error) : ''}
+        ${state.reportMessage ? renderReportMessage(state.reportMessage.msg, state.reportMessage.type) : ''}
+    `;
+
+    // Paso 1: selección de síntomas
+    if (state.step === 1) {
+        const isNextDisabled = Object.values(state.symptoms).every(v => v === false);
+        contentHTML = `
+            <h2 class="text-2xl font-semibold mb-6 text-gray-200">¿Qué está sucediendo con tu sistema?</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                ${symptomList.map(renderSymptomCard).join('')}
+            </div>
+
+            <div class="flex justify-between mt-8">
+                <button id="reportButton" type="button"
+                    class="flex items-center bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-3 rounded-lg font-bold shadow-md transition-colors">
+                    ${getIconSvg('Plus', 18, 'mr-2')} Reportar otro problema
+                </button>
+
+                <button id="diagnoseButton"
+                        ${isNextDisabled || state.isLoading ? 'disabled' : ''}
+                        class="flex items-center px-8 py-3 rounded-full font-bold transition-all duration-300 ${
+                            isNextDisabled || state.isLoading
+                                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                                : 'bg-teal-600 hover:bg-teal-500 text-white shadow-xl'
+                        }">
+                    ${state.isLoading ? renderSpinner() : 'Diagnosticar Problema'}
+                    ${!state.isLoading ? getIconSvg('ArrowRight', 20, 'ml-2') : ''}
+                </button>
+            </div>
+        `;
+    }
+
+    // Paso 2: diagnóstico y feedback
+    else if (state.step === 2 && state.diagnosis) {
+        const iaActiva = state.diagnosis.alerta_ia_activa;
+        
+        let solutionSteps = state.diagnosis.detalles_recomendaciones;
+        let sintomasIdentificados = state.diagnosis.sintomas_activos.join(', ');
+
+
+        contentHTML = `
+            ${renderProblemaIdentificado(sintomasIdentificados)}
+
+            ${iaActiva 
+                ? renderIADiagnosis(state.diagnosis) // Muestra la interfaz simplificada de IA
+                : renderDiagnosisCard(state.diagnosis) // Muestra el diagnóstico estándar
+            }
+            
+            ${!iaActiva ? `
+                <!-- Pasos a Seguir para Solucionar (Solo si la IA NO está activa) -->
+                <div class="mt-8 p-6 bg-gray-700/50 rounded-xl shadow-lg border border-gray-600">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-200 flex items-center border-b border-gray-700 pb-2">
+                        ${getIconSvg('ListOrdered', 20, 'mr-2 text-teal-400')}
+                        Pasos a Seguir para Solucionar
+                    </h3>
+                    <ol class="space-y-3 list-none text-gray-300">
+                        ${solutionSteps.map((rec, index) => `
+                            <li class="pl-2 flex items-start">
+                                <span class="font-medium text-teal-400 mr-3 mt-0.5">${index + 1}.</span>
+                                ${rec}
+                            </li>
+                        `).join('')}
+                    </ol>
+                </div>
+            ` : ''}
+
+            <div class="mt-12 pt-6 border-t border-gray-700">
+                ${!iaActiva ? `
+                    <!-- Feedback buttons (Solo si la IA NO está activa) -->
+                    <h3 class="text-xl font-semibold mb-4 text-center text-teal-400">¿Esta Solución Resolvió el Problema?</h3>
+                    <div class="flex justify-center space-x-6">
+                        ${renderFeedbackButton('SÍ, Éxito', 'EXITOSO', 'green', 'CheckCircle')}
+                        ${renderFeedbackButton('NO, Falló', 'FALLIDO', 'red', 'XCircle')}
+                    </div>
+                ` : ''}
+
+                <!-- Botón de Reset (siempre visible, con estilos ajustados según IA) -->
+                <button id="resetButton" class="mt-6 mx-auto block text-gray-400 hover:text-teal-400 transition-colors flex items-center ${iaActiva ? 'text-lg font-bold' : ''}">
+                    ${getIconSvg('ArrowLeft', iaActiva ? 24 : 16, 'inline mr-2')} Iniciar un Nuevo Diagnóstico
+                </button>
+            </div>
+        `;
+    }
+
+    // Paso "report": formulario para reportar problema
+    else if (state.step === "report") {
+        contentHTML = `
+            <h2 class="text-2xl font-semibold mb-6 text-gray-200">Desarrolle su Problema (Para futuros análisis)</h2>
+            <textarea id="userReport" rows="7"
+                class="w-full p-4 rounded-xl bg-gray-700 text-white placeholder-gray-400 focus:outline-teal-500 focus:ring-2 focus:ring-teal-500 resize-none"
+                placeholder="Escriba aquí los detalles de su problema (ej: el programa 'X' falla solo cuando abro el navegador 'Y')..."></textarea>
+            <div class="flex justify-end mt-6 space-x-4">
+                <button id="saveReportButton"
+                    class="px-6 py-3 bg-teal-600 hover:bg-teal-500 rounded-lg font-bold text-white shadow-lg flex items-center transition-colors">
+                    ${getIconSvg('Save', 20, 'mr-2')} Guardar reporte y generar ticket
+                </button>
+                <button id="cancelReportButton"
+                    class="px-6 py-3 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white shadow-lg transition-colors">
+                    Cancelar
+                </button>
+            </div>
+        `;
+    }
+
+    // Inyectar
+    app.innerHTML = `
+        <div class="w-full max-w-4xl bg-gray-800/80 backdrop-blur-md rounded-2xl shadow-2xl p-6 sm:p-10 text-white">
+            ${headerHTML}
+            ${contentHTML}
+        </div>
+    `;
+
+    // Asignar eventos después de inyectar HTML
+    attachEvents();
+    // Crear iconos
+    lucide.createIcons();
+}
+
 // --- Manejo de eventos ---
 function attachEvents() {
-    // síntomas: toggle
+    // Síntomas: toggle
     document.querySelectorAll('.symptom-card').forEach(card => {
         card.onclick = () => {
             const key = card.getAttribute('data-key');
-            // Sólo toggle si es una key existente en state.symptoms
             if (Object.prototype.hasOwnProperty.call(state.symptoms, key)) {
                 state.symptoms[key] = !state.symptoms[key];
+                state.reportMessage = null; // Limpiar mensaje de reporte al interactuar
                 render();
             }
         };
     });
 
-    // botón diagnosticar
+    // Botón diagnosticar
     const diagnoseBtn = document.getElementById('diagnoseButton');
     if (diagnoseBtn) diagnoseBtn.onclick = sendDiagnosis;
 
-    // botón report (abre form)
+    // Botón report (abre form)
     const reportBtn = document.getElementById('reportButton');
     if (reportBtn) {
         reportBtn.onclick = (e) => {
             e.preventDefault();
+            state.reportMessage = null; // Limpiar mensaje al ir al formulario
             state.step = "report";
             render();
         };
     }
 
-    // botón guardar reporte
+    // Botón guardar reporte
     const saveReportBtn = document.getElementById('saveReportButton');
     if (saveReportBtn) saveReportBtn.onclick = sendReport;
 
-    // cancelar reporte
+    // Cancelar reporte
     const cancelReportBtn = document.getElementById('cancelReportButton');
     if (cancelReportBtn) cancelReportBtn.onclick = () => {
+        state.reportMessage = null;
         state.step = 1;
         render();
     };
 
-    // feedback buttons
+    // Feedback buttons
     document.querySelectorAll('.feedback-button').forEach(btn => {
         btn.onclick = (e) => sendFeedback(e.currentTarget.getAttribute('data-result'));
     });
 
-    // reset
+    // Reset
     const resetBtn = document.getElementById('resetButton');
     if (resetBtn) resetBtn.onclick = resetSystem;
 
-    // asegurar íconos
     lucide.createIcons();
 }
 
@@ -286,6 +396,7 @@ async function sendDiagnosis() {
     if (Object.values(state.symptoms).every(v => v === false)) return;
     state.isLoading = true;
     state.error = null;
+    state.reportMessage = null;
     render();
     try {
         const res = await fetch(`${API_BASE_URL}/diagnosticar`, {
@@ -296,11 +407,13 @@ async function sendDiagnosis() {
         if (!res.ok) throw new Error('Error en /diagnosticar');
         const data = await res.json();
         state.diagnosis = data;
-        state.sessionId = data.sesion_id || data.sesion_id || null;
+        state.sessionId = data.sesion_id || null;
         state.step = 2;
+        console.log("Diagnóstico recibido:", data);
+
     } catch (err) {
         console.error('Error diagnosticar:', err);
-        state.error = "Error al comunicarse con el motor de diagnóstico.";
+        state.error = "Error al comunicarse con el motor de diagnóstico. Asegúrese de que el servidor FastAPI esté corriendo.";
     }
     state.isLoading = false;
     render();
@@ -310,7 +423,15 @@ async function sendReport() {
     const textarea = document.getElementById('userReport');
     if (!textarea) return;
     const reportText = textarea.value.trim();
-    if (!reportText) return alert("Por favor, escriba algo antes de guardar.");
+    if (!reportText) {
+        state.reportMessage = {msg: "❌ Por favor, escriba algo antes de guardar.", type: 'error'};
+        render();
+        return;
+    }
+    
+    state.isLoading = true;
+    render();
+
     try {
         const res = await fetch(`${API_BASE_URL}/reportar_problema`, {
             method: "POST",
@@ -319,28 +440,40 @@ async function sendReport() {
         });
         if (!res.ok) throw new Error('Error al guardar reporte en servidor');
         const data = await res.json();
-        alert("✅ Reporte guardado correctamente");
-        console.log("Respuesta del servidor:", data);
+        
+        state.reportMessage = {msg: `✅ Reporte guardado correctamente. Ticket ID: ${data.id}`, type: 'success'};
         state.step = 1;
-        render();
+        
     } catch (err) {
         console.error("Error enviarReport:", err);
-        alert("❌ No se pudo enviar el reporte al servidor.");
+        state.reportMessage = {msg: "❌ No se pudo enviar el reporte al servidor.", type: 'error'};
     }
+
+    state.isLoading = false;
+    render();
 }
 
 async function sendFeedback(result) {
     if (!state.sessionId) return;
+    state.isLoading = true;
+    state.error = null;
+    render();
+    
     try {
         const res = await fetch(`${API_BASE_URL}/feedback/${state.sessionId}?resultado=${result}`, {
             method: 'POST'
         });
         if (!res.ok) throw new Error('Error al enviar feedback');
-        // opcional: manejar respuesta
+        
+        // Simulación de carga para que se note que el feedback se procesó
+        await new Promise(resolve => setTimeout(resolve, 500)); 
+        
+        console.log(`Feedback enviado (${result}). El sistema experto ha aprendido de esta sesión.`);
         resetSystem();
     } catch (err) {
         console.error('Error feedback:', err);
-        state.error = "Error al enviar feedback.";
+        state.error = "Error al enviar feedback al historial del servidor.";
+        state.isLoading = false;
         render();
     }
 }
@@ -359,6 +492,7 @@ function resetSystem() {
         sessionId: null,
         isLoading: false,
         error: null,
+        reportMessage: null,
     };
     render();
 }
@@ -366,4 +500,4 @@ function resetSystem() {
 window.onload = render;
 </script>
 </body>
-</html>
+</html> 

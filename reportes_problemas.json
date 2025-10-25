@@ -18,5 +18,45 @@
         "id": "09b41274-6857-4964-a8ff-7d1b5a4e14bc",
         "descripcion": "problema",
         "timestamp": "2025-10-22T20:23:58.566713"
+    },
+    {
+        "id": "6831e218-6ee9-4a50-95d5-e5cd00180d0e",
+        "descripcion": "se corta internet",
+        "timestamp": "2025-10-24T20:05:18.195216"
+    },
+    {
+        "id": "ba684ad2-cfae-4c51-b249-d20078c33b5c",
+        "descripcion": "el programa falla solo cuando abro el navegador",
+        "timestamp": "2025-10-24T20:33:46.028658"
+    },
+    {
+        "id": "2a045a22-846a-478e-8cf4-87502e5cddf9",
+        "descripcion": "se corta internet",
+        "timestamp": "2025-10-24T20:57:34.912086"
+    },
+    {
+        "id": "47f85c9f-bb1e-4e8a-afab-bf012400f2b0",
+        "descripcion": "no conecta internet",
+        "timestamp": "2025-10-24T20:58:35.509753"
+    },
+    {
+        "id": "5092179b-e2e7-4510-a95a-da940771035d",
+        "descripcion": "no conecta a internet",
+        "timestamp": "2025-10-24T23:37:52.399375"
+    },
+    {
+        "id": "b93d2a78-7343-4149-b1f6-eb3dc5276466",
+        "descripcion": "no conecta a internet",
+        "timestamp": "2025-10-25T00:27:38.750663"
+    },
+    {
+        "id": "57baa462-7484-4ec6-9dd6-709bb64b0739",
+        "descripcion": "no conecta a internet",
+        "timestamp": "2025-10-25T00:34:06.606003"
+    },
+    {
+        "id": "17095c46-2429-43bb-89ff-6769a72a16f7",
+        "descripcion": "no conecta a internet",
+        "timestamp": "2025-10-25T00:45:40.230680"
     }
 ]
