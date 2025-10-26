@@ -18,5 +18,10 @@
         "id": "57d5759d-c392-4b73-b6d3-0e6e9a9e4cbe",
         "descripcion": "no conecta a internet",
         "timestamp": "2025-10-25T02:42:39.605417"
+    },
+    {
+        "id": "9bf7d38d-2692-4d08-b5e3-2067519c2360",
+        "descripcion": "hola hola",
+        "timestamp": "2025-10-25T12:32:07.762525"
     }
 ]
